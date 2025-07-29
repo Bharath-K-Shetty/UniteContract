@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("HgYaGfeHEfgM6BFeTCGZsP9rNoTLkrnsxXv3nsAJQwuF");
+declare_id!("FiAZqb938M568QeGyekNEZbb27MLLvBCoaZwHQEtKw6h");
 
 #[program]
 pub mod unite {
@@ -10,6 +10,8 @@ pub mod unite {
         let organizer = &mut ctx.accounts.organizer;
         organizer.authority = ctx.accounts.authority.key();
         organizer.event_count = 0;
+        organizer.is_verified = false;
+        organizer.collateral_amount = 0;
         Ok(())
     }
 
@@ -42,6 +44,15 @@ pub mod unite {
 
         // Increment after using
         organizer.event_count += 1;
+
+        Ok(())
+    }
+    pub fn verify_organizer(ctx: Context<VerifyOrganizer>, amount: u64) -> Result<()> {
+        let organizer = &mut ctx.accounts.organizer;
+
+        // Set verified = true and store the amount
+        organizer.is_verified = true;
+        organizer.collateral_amount = amount;
 
         Ok(())
     }
@@ -90,16 +101,30 @@ pub struct CreateEvent<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+pub struct VerifyOrganizer<'info> {
+    #[account(
+        mut,
+        seeds = [b"organizer", authority.key().as_ref()],
+        bump
+    )]
+    pub organizer: Account<'info, OrganizerAccount>,
+
+    pub authority: Signer<'info>,
+}
+
 // ---------------------------- ACCOUNTS ----------------------------
 
 #[account]
 pub struct OrganizerAccount {
     pub authority: Pubkey,
     pub event_count: u32,
+    pub is_verified: bool,
+    pub collateral_amount: u64,
 }
 
 impl OrganizerAccount {
-    pub const MAX_SIZE: usize = 32 + 4; // Pubkey + u32
+    pub const MAX_SIZE: usize = 32 + 4 + 1 + 8; // Pubkey + u32
 }
 
 #[account]

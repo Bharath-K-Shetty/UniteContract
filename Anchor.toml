@@ -5,7 +5,7 @@ seeds = false
 skip-lint = false
 
 [programs.devnet]
-unite = "FiAZqb938M568QeGyekNEZbb27MLLvBCoaZwHQEtKw6h"
+unite = "BSCyxZZC45jfhd7dTTGgqHi2zugA36ydofso7FNdeK8X"
 
 [registry]
 url = "https://api.apr.dev"

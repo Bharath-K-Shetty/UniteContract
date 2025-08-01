@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use solana_program::system_instruction;
-declare_id!("BSCyxZZC45jfhd7dTTGgqHi2zugA36ydofso7FNdeK8X");
+
+declare_id!("G77JzLwbDimMkuD1o8NXbkeVzDhkPPfXhHMEqJVw6Lv1");
 #[program]
 pub mod unite {
 
@@ -55,6 +55,9 @@ pub mod unite {
             amount >= MIN_COLLATERAL,
             CustomError::InsufficientCollateral
         );
+        let rent = Rent::get()?;
+        let min_balance = rent.minimum_balance(0);
+        require!(amount >= min_balance, CustomError::InsufficientCollateral);
 
         // Set verified = true and store the amount
         organizer.is_verified = true;
@@ -82,32 +85,49 @@ pub mod unite {
 
         // Transfer SOL back to authority
         let amount = organizer.collateral_amount;
-        let ix = system_instruction::transfer(
-            &ctx.accounts.collateral_vault.key(),
-            &ctx.accounts.authority.key(),
-            amount,
-        );
-
-        // PDA signer seeds
-        let seeds = &[
+        let seeds: &[&[u8]] = &[
             b"collateral_vault",
             ctx.accounts.authority.key.as_ref(),
             &[ctx.bumps.collateral_vault],
         ];
 
-        anchor_lang::solana_program::program::invoke_signed(
-            &ix,
-            &[
-                ctx.accounts.collateral_vault.to_account_info(),
-                ctx.accounts.authority.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-            &[seeds],
-        )?;
+        let signer_seeds: &[&[&[u8]]] = &[seeds];
+
+        let cpi_ctx = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.collateral_vault.to_account_info(),
+                to: ctx.accounts.authority.to_account_info(),
+            },
+        )
+        .with_signer(signer_seeds);
+
+        system_program::transfer(cpi_ctx, amount)?;
 
         // Reset state
         organizer.is_verified = false;
         organizer.collateral_amount = 0;
+
+        Ok(())
+    }
+
+    pub fn initialize_ticket_account(
+        ctx: Context<InitializeTicketAccount>,
+        timestamp: i64,
+    ) -> Result<()> {
+        let ticket = &mut ctx.accounts.ticket;
+        let event = &mut ctx.accounts.event;
+        let rent = Rent::get()?; // ⬅️ Get Rent sysvar
+        let min_balance = rent.minimum_balance(0); // 0 bytes, system account
+        require!(
+            event.ticket_price >= min_balance,
+            CustomError::InsufficientCollateral
+        );
+
+        ticket.buyer = ctx.accounts.buyer.key();
+        ticket.timestamp = timestamp;
+        ticket.event = ctx.accounts.event.key();
+        ticket.is_refunded = false;
 
         Ok(())
     }
@@ -157,12 +177,12 @@ pub mod unite {
 #[derive(Accounts)]
 pub struct InitializeOrganizer<'info> {
     #[account(
-        init,
-        payer = authority,
-        space = 8 + OrganizerAccount::MAX_SIZE,
-        seeds = [b"organizer", authority.key().as_ref()],
-        bump
-    )]
+            init,
+            payer = authority,
+            space = 8 + OrganizerAccount::MAX_SIZE,
+            seeds = [b"organizer", authority.key().as_ref()],
+            bump
+        )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
@@ -174,19 +194,19 @@ pub struct InitializeOrganizer<'info> {
 #[derive(Accounts)]
 pub struct CreateEvent<'info> {
     #[account(
-        mut,
-        seeds = [b"organizer", authority.key().as_ref()],
-        bump
-    )]
+            mut,
+            seeds = [b"organizer", authority.key().as_ref()],
+            bump
+        )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(
-        init,
-        payer = authority,
-        space = 8 + EventAccount::MAX_SIZE,
-        seeds = [b"event", authority.key().as_ref(), &organizer.event_count.to_le_bytes()],
-        bump
-    )]
+            init,
+            payer = authority,
+            space = 8 + EventAccount::MAX_SIZE,
+            seeds = [b"event", authority.key().as_ref(), &organizer.event_count.to_le_bytes()],
+            bump
+        )]
     pub event: Account<'info, EventAccount>,
 
     #[account(mut)]
@@ -198,23 +218,20 @@ pub struct CreateEvent<'info> {
 #[derive(Accounts)]
 pub struct VerifyOrganizer<'info> {
     #[account(
-        mut,
-        seeds = [b"organizer", authority.key().as_ref()],
-        bump
-    )]
+            mut,
+            seeds = [b"organizer", authority.key().as_ref()],
+            bump
+        )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
     /// CHECK: Only used to hold SOL
     #[account(
-         init_if_needed,
-    payer = authority,
-        space = 8,
-    seeds = [b"collateral_vault", authority.key().as_ref()],
-    bump
-)]
-    pub collateral_vault: Account<'info, CollateralVaultAccount>,
+        seeds = [b"collateral_vault", authority.key().as_ref()],
+        bump
+    )]
+    pub collateral_vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -222,25 +239,44 @@ pub struct VerifyOrganizer<'info> {
 #[derive(Accounts)]
 pub struct UnverifyOrganizer<'info> {
     #[account(
-        mut,
-        seeds = [b"organizer", authority.key().as_ref()],
-        bump
-    )]
+            mut,
+            seeds = [b"organizer", authority.key().as_ref()],
+            bump
+        )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// CHECK: Only used to hold SOL
     #[account(
-    mut,
-    seeds = [b"collateral_vault", authority.key().as_ref()],
-    bump
-)]
-    pub collateral_vault: Account<'info, CollateralVaultAccount>,
+        seeds = [b"collateral_vault", authority.key().as_ref()],
+        bump
+    )]
+    pub collateral_vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
+
+#[derive(Accounts)]
+#[instruction(timestamp: i64)]
+pub struct InitializeTicketAccount<'info> {
+    #[account(
+            init,
+            payer = buyer,
+            space = 8 + TicketAccount::MAX_SIZE,
+            seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
+            bump
+        )]
+    pub ticket: Account<'info, TicketAccount>,
+
+    #[account(mut)]
+    pub buyer: Signer<'info>,
+
+    pub event: Account<'info, EventAccount>,
+
+    pub system_program: Program<'info, System>,
+}
+
 #[derive(Accounts)]
 #[instruction(timestamp: i64)]
 pub struct BuyTicket<'info> {
@@ -251,23 +287,18 @@ pub struct BuyTicket<'info> {
     pub buyer: Signer<'info>,
 
     #[account(
-        init_if_needed,
-        payer = buyer,
-        space = 8 + TicketAccount::MAX_SIZE,
-        seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
-        bump
-    )]
+            mut,
+            seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
+            bump
+        )]
     pub ticket: Account<'info, TicketAccount>,
 
-    /// CHECK: This PDA holds SOL only, no data
     #[account(
-   init_if_needed,
-    payer = buyer,
-        space = 8,
-    seeds = [b"event_vault", event.key().as_ref()],
-    bump
-)]
-    pub event_vault: Account<'info, EventVaultAccount>,
+    mut,
+        seeds = [b"event_vault", event.key().as_ref()],
+        bump
+    )]
+    pub event_vault: SystemAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -283,7 +314,7 @@ pub struct OrganizerAccount {
 }
 
 impl OrganizerAccount {
-    pub const MAX_SIZE: usize = 32 + 4 + 1 + 8; // Pubkey + u32
+    pub const MAX_SIZE: usize = 32 + 4 + 1 + 8;
 }
 
 #[account]
@@ -307,12 +338,6 @@ pub struct TicketAccount {
     pub timestamp: i64,
     pub is_refunded: bool,
 }
-
-#[account]
-pub struct EventVaultAccount {}
-
-#[account]
-pub struct CollateralVaultAccount {}
 
 impl TicketAccount {
     pub const MAX_SIZE: usize = 32 + 32 + 8 + 1; // buyer + event + timestamp + refunded

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("G77JzLwbDimMkuD1o8NXbkeVzDhkPPfXhHMEqJVw6Lv1");
+declare_id!("DvjeoH6mkwS9BUotv3azz9Wr7NcSatM2xhvYpoKaVRqZ");
 #[program]
 pub mod unite {
 
@@ -24,6 +24,9 @@ pub mod unite {
         ticket_price: u64,
         quorum: u32,
         maximum_capacity: u32,
+        city: String,
+        address: String,
+        image_url: String,
     ) -> Result<()> {
         let organizer = &mut ctx.accounts.organizer;
 
@@ -42,7 +45,9 @@ pub mod unite {
         event.is_cancelled = false;
         event.is_confirmed = false;
         event.bump = ctx.bumps.event;
-
+        event.city = city;
+        event.address = address;
+        event.image_url = image_url;
         // Increment after using
         organizer.event_count += 1;
 
@@ -177,12 +182,12 @@ pub mod unite {
 #[derive(Accounts)]
 pub struct InitializeOrganizer<'info> {
     #[account(
-            init,
-            payer = authority,
-            space = 8 + OrganizerAccount::MAX_SIZE,
-            seeds = [b"organizer", authority.key().as_ref()],
-            bump
-        )]
+                init,
+                payer = authority,
+                space = 8 + OrganizerAccount::MAX_SIZE,
+                seeds = [b"organizer", authority.key().as_ref()],
+                bump
+            )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
@@ -194,19 +199,19 @@ pub struct InitializeOrganizer<'info> {
 #[derive(Accounts)]
 pub struct CreateEvent<'info> {
     #[account(
-            mut,
-            seeds = [b"organizer", authority.key().as_ref()],
-            bump
-        )]
+                mut,
+                seeds = [b"organizer", authority.key().as_ref()],
+                bump
+            )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(
-            init,
-            payer = authority,
-            space = 8 + EventAccount::MAX_SIZE,
-            seeds = [b"event", authority.key().as_ref(), &organizer.event_count.to_le_bytes()],
-            bump
-        )]
+                init,
+                payer = authority,
+                space = 8 + EventAccount::MAX_SIZE,
+                seeds = [b"event", authority.key().as_ref(), &organizer.event_count.to_le_bytes()],
+                bump
+            )]
     pub event: Account<'info, EventAccount>,
 
     #[account(mut)]
@@ -218,20 +223,21 @@ pub struct CreateEvent<'info> {
 #[derive(Accounts)]
 pub struct VerifyOrganizer<'info> {
     #[account(
-            mut,
-            seeds = [b"organizer", authority.key().as_ref()],
-            bump
-        )]
+                mut,
+                seeds = [b"organizer", authority.key().as_ref()],
+                bump
+            )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
     /// CHECK: Only used to hold SOL
     #[account(
-        seeds = [b"collateral_vault", authority.key().as_ref()],
-        bump
-    )]
-    pub collateral_vault: SystemAccount<'info>,
+        mut,
+            seeds = [b"collateral_vault", authority.key().as_ref()],
+            bump
+        )]
+    pub collateral_vault: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -239,20 +245,22 @@ pub struct VerifyOrganizer<'info> {
 #[derive(Accounts)]
 pub struct UnverifyOrganizer<'info> {
     #[account(
-            mut,
-            seeds = [b"organizer", authority.key().as_ref()],
-            bump
-        )]
+                mut,
+                seeds = [b"organizer", authority.key().as_ref()],
+                bump
+            )]
     pub organizer: Account<'info, OrganizerAccount>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    /// CHECK: This is a system-owned PDA used only to hold SOL
     #[account(
-        seeds = [b"collateral_vault", authority.key().as_ref()],
-        bump
-    )]
-    pub collateral_vault: SystemAccount<'info>,
+        mut,
+            seeds = [b"collateral_vault", authority.key().as_ref()],
+            bump
+        )]
+    pub collateral_vault: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -261,12 +269,12 @@ pub struct UnverifyOrganizer<'info> {
 #[instruction(timestamp: i64)]
 pub struct InitializeTicketAccount<'info> {
     #[account(
-            init,
-            payer = buyer,
-            space = 8 + TicketAccount::MAX_SIZE,
-            seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
-            bump
-        )]
+                init,
+                payer = buyer,
+                space = 8 + TicketAccount::MAX_SIZE,
+                seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
+                bump
+            )]
     pub ticket: Account<'info, TicketAccount>,
 
     #[account(mut)]
@@ -287,18 +295,19 @@ pub struct BuyTicket<'info> {
     pub buyer: Signer<'info>,
 
     #[account(
-            mut,
-            seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
-            bump
-        )]
+                mut,
+                seeds = [b"ticket", event.key().as_ref(), buyer.key().as_ref(), &timestamp.to_le_bytes()],
+                bump
+            )]
     pub ticket: Account<'info, TicketAccount>,
 
+    /// CHECK: This is a system-owned PDA used only to hold SOL
     #[account(
-    mut,
-        seeds = [b"event_vault", event.key().as_ref()],
-        bump
-    )]
-    pub event_vault: SystemAccount<'info>,
+            mut,
+            seeds = [b"event_vault", event.key().as_ref()],
+            bump
+        )]
+    pub event_vault: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
 }
@@ -330,6 +339,9 @@ pub struct EventAccount {
     pub is_cancelled: bool,
     pub is_confirmed: bool,
     pub bump: u8,
+    pub city: String,
+    pub address: String,
+    pub image_url: String,
 }
 #[account]
 pub struct TicketAccount {
@@ -344,7 +356,20 @@ impl TicketAccount {
 }
 
 impl EventAccount {
-    pub const MAX_SIZE: usize = 32 + 104 + 284 + 8 + 8 + 4 + 4 + 4 + 1 + 1 + 1;
+    pub const MAX_SIZE: usize = 32 + // organizer
+        4 + 100 + // title: up to 100 bytes (4 bytes for prefix)
+        4 + 256 + // description: up to 256 bytes
+        8 + // deadline
+        8 + // ticket_price
+        4 + // quorum
+        4 + // attendees
+        4 + // maximum_capacity
+        1 + // is_cancelled
+        1 + // is_confirmed
+        1 + // bump
+        4 + 50 + // city: up to 50 bytes
+        4 + 100+
+        4+150;
 }
 #[error_code]
 pub enum CustomError {
